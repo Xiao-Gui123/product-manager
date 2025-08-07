@@ -11,8 +11,8 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// 数据库初始化
-const db = new sqlite3.Database(path.join(__dirname, '..', 'products.db'));
+// 数据库初始化 - 使用内存数据库以适应无状态环境
+const db = new sqlite3.Database(':memory:');
 
 /**
  * 初始化数据库表
