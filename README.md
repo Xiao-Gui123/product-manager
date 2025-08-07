@@ -13,7 +13,7 @@
 
 ✨ **技术特性**
 - 🚀 前后端分离架构
-- 💾 SQLite 内存数据库（无跨实例持久化）
+- 💾 PostgreSQL 云数据库（通过 `DATABASE_URL` 连接）
 - 📱 响应式设计，支持移动端
 - 🔄 实时数据更新
 - 🛡️ 数据验证和错误处理
@@ -22,7 +22,7 @@
 
 **后端**
 - Node.js + Express.js
-- SQLite3 内存数据库
+- PostgreSQL 数据库
 - CORS 跨域支持
 
 **前端**
@@ -38,17 +38,20 @@
 npm install
 ```
 
-### 2. 启动开发服务器
+### 2. 配置环境变量
+在 `.env` 或部署平台中设置 `DATABASE_URL`，指向云数据库连接字符串。
+
+### 3. 启动开发服务器
 ```bash
 npm run dev
 ```
 
-### 3. 启动生产服务器
+### 4. 启动生产服务器
 ```bash
 npm start
 ```
 
-### 4. 访问应用
+### 5. 访问应用
 打开浏览器访问：http://localhost:3000
 
 ## 项目结构
@@ -130,13 +133,13 @@ CMD ["npm", "start"]
 ### 数据库结构
 ```sql
 CREATE TABLE products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     price REAL NOT NULL,
-    purchase_date TEXT NOT NULL,
+    purchase_date DATE NOT NULL,
     days_from_today INTEGER NOT NULL,
     daily_cost REAL NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 

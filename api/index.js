@@ -1,5 +1,5 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
@@ -11,22 +11,24 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// 数据库初始化 - 使用内存数据库以适应无状态环境
-const db = new sqlite3.Database(':memory:');
+// 数据库初始化 - 连接云数据库
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+});
 
 /**
  * 初始化数据库表
  */
-function initializeDatabase() {
-    db.run(`
+async function initializeDatabase() {
+    await pool.query(`
         CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             price REAL NOT NULL,
-            purchase_date TEXT NOT NULL,
+            purchase_date DATE NOT NULL,
             days_from_today INTEGER NOT NULL,
             daily_cost REAL NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     `);
 }
@@ -59,20 +61,19 @@ function calculateDailyCost(price, days) {
 /**
  * 获取所有产品
  */
-app.get('/api/products', (req, res) => {
-    db.all('SELECT * FROM products ORDER BY created_at DESC', (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json(rows);
-    });
+app.get('/api/products', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM products ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /**
  * 添加新产品
  */
-app.post('/api/products', (req, res) => {
+app.post('/api/products', async (req, res) => {
     const { name, price, purchase_date } = req.body;
 
     if (!name || !price || !purchase_date) {
@@ -83,59 +84,55 @@ app.post('/api/products', (req, res) => {
     const days = calculateDaysFromToday(purchase_date);
     const dailyCost = calculateDailyCost(price, days);
 
-    db.run(
-        'INSERT INTO products (name, price, purchase_date, days_from_today, daily_cost) VALUES (?, ?, ?, ?, ?)',
-        [name, price, purchase_date, days, dailyCost],
-        function(err) {
-            if (err) {
-                res.status(500).json({ error: err.message });
-                return;
-            }
-            res.json({
-                id: this.lastID,
-                name,
-                price,
-                purchase_date,
-                days_from_today: days,
-                daily_cost: dailyCost
-            });
-        }
-    );
+    try {
+        const insertResult = await pool.query(
+            'INSERT INTO products (name, price, purchase_date, days_from_today, daily_cost) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            [name, price, purchase_date, days, dailyCost]
+        );
+        res.json({
+            id: insertResult.rows[0].id,
+            name,
+            price,
+            purchase_date,
+            days_from_today: days,
+            daily_cost: dailyCost
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /**
  * 删除产品
  */
-app.delete('/api/products/:id', (req, res) => {
+app.delete('/api/products/:id', async (req, res) => {
     const { id } = req.params;
 
-    db.run('DELETE FROM products WHERE id = ?', [id], function(err) {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
+    try {
+        await pool.query('DELETE FROM products WHERE id = $1', [id]);
         res.json({ message: '产品删除成功' });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /**
  * 获取统计信息
  */
-app.get('/api/statistics', (req, res) => {
-    db.all(`
-        SELECT
-            COUNT(*) as total_products,
-            SUM(price) as total_price,
-            SUM(daily_cost) as total_daily_cost,
-            AVG(daily_cost) as avg_daily_cost
-        FROM products
-    `, (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json(rows[0]);
-    });
+app.get('/api/statistics', async (req, res) => {
+    try {
+        const statResult = await pool.query(`
+            SELECT
+                COUNT(*)::int AS total_products,
+                COALESCE(SUM(price), 0)::numeric AS total_price,
+                COALESCE(SUM(daily_cost), 0)::numeric AS total_daily_cost,
+                COALESCE(AVG(daily_cost), 0)::numeric AS avg_daily_cost
+            FROM products
+        `);
+        res.json(statResult.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // 提供前端页面
@@ -144,6 +141,6 @@ app.get('/', (req, res) => {
 });
 
 // 初始化数据库
-initializeDatabase();
+initializeDatabase().catch(console.error);
 
 module.exports = app;
